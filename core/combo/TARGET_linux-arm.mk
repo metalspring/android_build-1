@@ -34,11 +34,21 @@ ifeq ($(strip $(TARGET_ARCH_VARIANT)),)
 TARGET_ARCH_VARIANT := armv5te
 endif
 
-ifeq ($(strip $(TARGET_GCC_VERSION_EXP)),)
-TARGET_GCC_VERSION := 4.7
+ifeq ($(strip $(TARGET_GCC_VERSION_AND)),)
+TARGET_GCC_VERSION_AND := 4.7
 else
-TARGET_GCC_VERSION := $(TARGET_GCC_VERSION_EXP)
+TARGET_GCC_VERSION_AND := $(TARGET_GCC_VERSION_AND)
 endif
+
+ifeq ($(strip $(TARGET_GCC_VERSION_ARM)),)
+TARGET_GCC_VERSION_ARM := 4.7
+else
+TARGET_GCC_VERSION_ARM := $(TARGET_GCC_VERSION_ARM)
+endif
+
+# Specify Target Custom GCC Chains to use:
+TARGET_GCC_VERSION_AND := 4.8
+TARGET_GCC_VERSION_ARM := 4.8
 
 TARGET_ARCH_SPECIFIC_MAKEFILE := $(BUILD_COMBOS)/arch/$(TARGET_ARCH)/$(TARGET_ARCH_VARIANT).mk
 ifeq ($(strip $(wildcard $(TARGET_ARCH_SPECIFIC_MAKEFILE))),)
@@ -49,7 +59,7 @@ include $(TARGET_ARCH_SPECIFIC_MAKEFILE)
 
 # You can set TARGET_TOOLS_PREFIX to get gcc from somewhere else
 ifeq ($(strip $(TARGET_TOOLS_PREFIX)),)
-TARGET_TOOLCHAIN_ROOT := prebuilts/gcc/$(HOST_PREBUILT_TAG)/arm/arm-linux-androideabi-$(TARGET_GCC_VERSION)
+TARGET_TOOLCHAIN_ROOT := prebuilts/gcc/$(HOST_PREBUILT_TAG)/arm/arm-linux-androideabi-$(TARGET_GCC_VERSION_AND)
 TARGET_TOOLS_PREFIX := $(TARGET_TOOLCHAIN_ROOT)/bin/arm-linux-androideabi-
 endif
 
@@ -68,16 +78,39 @@ endif
 
 TARGET_NO_UNDEFINED_LDFLAGS := -Wl,--no-undefined
 
-TARGET_arm_CFLAGS :=    -O2 \
+TARGET_arm_CFLAGS :=    -O3 \
+                        -ftree-vectorize \
+                        -fstrict-aliasing \
+                        -Wstrict-aliasing=3 \
                         -fomit-frame-pointer \
-                        -fstrict-aliasing    \
-                        -funswitch-loops
+                        -Werror=strict-aliasing \
+                        -funsafe-loop-optimizations
+
 
 # Modules can choose to compile some source as thumb.
 TARGET_thumb_CFLAGS :=  -mthumb \
-                        -Os \
+                        -O3 \
+                        -fstrict-aliasing \
+                        -Wstrict-aliasing=3 \
                         -fomit-frame-pointer \
-                        -fno-strict-aliasing
+                        -Werror=strict-aliasing \
+                        -funsafe-math-optimizations
+
+#SHUT THE F$#@ UP!
+TARGET_arm_CFLAGS +=    -Wno-unused-parameter \
+                        -Wno-unused-value \
+                        -Wno-unused-function
+
+TARGET_thumb_CFLAGS +=  -Wno-unused-parameter \
+                        -Wno-unused-value \
+                        -Wno-unused-function
+
+# Turn off strict-aliasing if we're building an AOSP variant without the
+# patchset...
+ifeq ($(DEBUG_NO_STRICT_ALIASING),yes)
+TARGET_arm_CFLAGS += -fno-strict-aliasing -Wno-error=strict-aliasing
+TARGET_thumb_CFLAGS += -fno-strict-aliasing -Wno-error=strict-aliasing
+endif
 
 # Set FORCE_ARM_DEBUGGING to "true" in your buildspec.mk
 # or in your environment to force a full arm build, even for
@@ -89,8 +122,8 @@ TARGET_thumb_CFLAGS :=  -mthumb \
 # with -mlong-calls.  When built at -O0, those libraries are
 # too big for a thumb "BL <label>" to go from one end to the other.
 ifeq ($(FORCE_ARM_DEBUGGING),true)
-  TARGET_arm_CFLAGS += -fno-omit-frame-pointer -fno-strict-aliasing
-  TARGET_thumb_CFLAGS += -marm -fno-omit-frame-pointer
+  TARGET_arm_CFLAGS += -fno-omit-frame-pointer -fstrict-aliasing
+  TARGET_thumb_CFLAGS += -marm -fno-omit-frame-pointer -fstrict-aliasing
 endif
 
 ifeq ($(TARGET_DISABLE_ARM_PIE),true)
@@ -108,6 +141,7 @@ TARGET_GLOBAL_CFLAGS += \
 			-ffunction-sections \
 			-fdata-sections \
 			-funwind-tables \
+			-fstrict-aliasing \
 			-fstack-protector \
 			-Wa,--noexecstack \
 			-Werror=format-security \
@@ -121,9 +155,18 @@ TARGET_GLOBAL_CFLAGS += \
 # We cannot turn it off blindly since the option is not available
 # in gcc-4.4.x.  We also want to disable sincos optimization globally
 # by turning off the builtin sin function.
-ifneq ($(filter 4.6 4.6.% 4.7 4.7.%, $(TARGET_GCC_VERSION)),)
+ifneq ($(filter 4.6 4.6.% 4.7 4.7.% 4.8 4.8.% 4.9 4.9.% 4.10 4.10.%, $(TARGET_GCC_VERSION_AND)),)
+ifneq ($(filter 4.6 4.6.% 4.7 4.7.% 4.8 4.8.% 4.9 4.9.% 4.10 4.10.%, $(TARGET_GCC_VERSION_ARM)),)
 TARGET_GLOBAL_CFLAGS += -Wno-unused-but-set-variable -fno-builtin-sin \
 			-fno-strict-volatile-bitfields
+ifneq ($(filter 4.8 4.8.% 4.9 4.9.% 4.10 4.10.%, $(TARGET_GCC_VERSION_AND)),)
+gcc_variant_ldflags := \
+			-Wl,--enable-new-dtags
+else
+gcc_variant_ldflags := \
+			-Wl,--icf=safe
+endif
+endif
 endif
 
 # This is to avoid the dreaded warning compiler message:
@@ -142,21 +185,22 @@ TARGET_GLOBAL_LDFLAGS += \
 			-Wl,-z,now \
 			-Wl,--warn-shared-textrel \
 			-Wl,--fatal-warnings \
-			-Wl,--icf=safe \
-			$(arch_variant_ldflags)
+			$(arch_variant_ldflags) $(gcc_variant_ldflags)
 
 TARGET_GLOBAL_CFLAGS += -mthumb-interwork
 
 TARGET_GLOBAL_CPPFLAGS += -fvisibility-inlines-hidden
 
 # More flags/options can be added here
-TARGET_RELEASE_CFLAGS := \
+TARGET_RELEASE_CFLAGS += \
 			-DNDEBUG \
-			-g \
-			-Wstrict-aliasing=2 \
+			-fstrict-aliasing \
+			-Wstrict-aliasing=3 \
+			-Werror=strict-aliasing \
 			-fgcse-after-reload \
 			-frerun-cse-after-loop \
-			-frename-registers
+			-frename-registers \
+			-pipe
 
 libc_root := bionic/libc
 libm_root := bionic/libm

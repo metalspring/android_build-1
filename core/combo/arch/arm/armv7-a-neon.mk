@@ -10,7 +10,7 @@ ifeq ($(strip $(TARGET_CPU_VARIANT)), cortex-a15)
 	arch_variant_cflags := -mcpu=cortex-a15
 else
 ifeq ($(strip $(TARGET_CPU_VARIANT)),cortex-a9)
-	arch_variant_cflags := -mcpu=cortex-a9
+	arch_variant_cflags := -mcpu=cortex-a9 -march=armv7-a -mtune=cortex-a9
 else
 ifeq ($(strip $(TARGET_CPU_VARIANT)),cortex-a8)
 	arch_variant_cflags := -mcpu=cortex-a8
@@ -40,5 +40,10 @@ arch_variant_cflags += \
     -mfloat-abi=softfp \
     -mfpu=neon
 
+ifneq ($(strip $(TARGET_CPU_VARIANT)),cortex-a8)
+arch_variant_ldflags := \
+	-Wl,--no-fix-cortex-a8
+else
 arch_variant_ldflags := \
 	-Wl,--fix-cortex-a8
+endif
