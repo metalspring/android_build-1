@@ -79,10 +79,14 @@ endif
 TARGET_NO_UNDEFINED_LDFLAGS := -Wl,--no-undefined
 
 TARGET_arm_CFLAGS :=    -O3 \
-                        -ftree-vectorize \
+                        -funswitch-loops \
                         -fstrict-aliasing \
+                        -fno-ipa-cp-clone \
                         -Wstrict-aliasing=3 \
+                        -fno-tree-vectorize \
                         -fomit-frame-pointer \
+                        -fno-vect-cost-model \
+                        -fno-inline-functions \
                         -Werror=strict-aliasing \
                         -funsafe-loop-optimizations
 
@@ -91,8 +95,13 @@ TARGET_arm_CFLAGS :=    -O3 \
 TARGET_thumb_CFLAGS :=  -mthumb \
                         -O3 \
                         -fstrict-aliasing \
+                        -fno-ipa-cp-clone \
                         -Wstrict-aliasing=3 \
+                        -fno-tree-vectorize \
+                        -fno-unswitch-loops \
+                        -fno-vect-cost-model \
                         -fomit-frame-pointer \
+                        -fno-inline-functions \
                         -Werror=strict-aliasing \
                         -funsafe-math-optimizations
 
@@ -145,7 +154,7 @@ TARGET_GLOBAL_CFLAGS += \
 			-fstack-protector \
 			-Wa,--noexecstack \
 			-Werror=format-security \
-			-D_FORTIFY_SOURCE=2 \
+			-D_FORTIFY_SOURCE=0 \
 			-fno-short-enums \
 			$(arch_variant_cflags) \
 			-include $(android_config_h) \
@@ -190,16 +199,21 @@ TARGET_GLOBAL_LDFLAGS += \
 TARGET_GLOBAL_CFLAGS += -mthumb-interwork
 
 TARGET_GLOBAL_CPPFLAGS += -fvisibility-inlines-hidden
+ifneq ($(DEBUG_NO_STDCXX11),yes)
+TARGET_GLOBAL_CPPFLAGS += $(call cc-option,-std=gnu++11)
+endif
 
 # More flags/options can be added here
 TARGET_RELEASE_CFLAGS += \
 			-DNDEBUG \
 			-fstrict-aliasing \
-			-Wstrict-aliasing=3 \
-			-Werror=strict-aliasing \
-			-fgcse-after-reload \
-			-frerun-cse-after-loop \
+			-fno-ipa-cp-clone \
 			-frename-registers \
+			-fgcse-after-reload \
+			-Wstrict-aliasing=3 \
+			-fno-vect-cost-model \
+			-frerun-cse-after-loop \
+			-Werror=strict-aliasing \
 			-pipe
 
 libc_root := bionic/libc
